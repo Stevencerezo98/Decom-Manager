@@ -27,8 +27,8 @@ import {
   User,
   Loader2
 } from 'lucide-react';
-import { Member, SchedulePeriod, Assignment, AreaType, AssignmentRule } from './types';
-import { loadStateFromStorage, saveStateToStorage, INITIAL_MEMBERS, INITIAL_RULES, DEFAULT_WEEKLY_CULTOS, loadStateFromServer, saveStateToServer } from './data';
+import { Member, SchedulePeriod, Assignment, AreaType, AssignmentRule, AppWhatsAppConfig } from './types';
+import { loadStateFromStorage, saveStateToStorage, INITIAL_MEMBERS, INITIAL_RULES, DEFAULT_WEEKLY_CULTOS, DEFAULT_WHATSAPP_CONFIG, loadStateFromServer, saveStateToServer } from './data';
 import { generateSchedule } from './utils/scheduler';
 
 // Import Views
@@ -56,6 +56,7 @@ export default function App() {
   const [rules, setRules] = useState<AssignmentRule[]>([]);
   const [periods, setPeriods] = useState<SchedulePeriod[]>([]);
   const [weeklyCultos, setWeeklyCultos] = useState<typeof DEFAULT_WEEKLY_CULTOS>([]);
+  const [waConfig, setWaConfig] = useState<AppWhatsAppConfig>(DEFAULT_WHATSAPP_CONFIG);
   // Coordinator Authentication state
   const [isCoordinatorLoggedIn, setIsCoordinatorLoggedIn] = useState<boolean>(() => {
     return localStorage.getItem('is_coordinator_logged_in') === 'true';
@@ -108,6 +109,7 @@ export default function App() {
       setRules(loaded.rules);
       setPeriods(currentPeriods);
       setWeeklyCultos(loaded.weeklyCultos);
+      if (loaded.waConfig) setWaConfig(loaded.waConfig);
       setSelectedPeriodId(currentPeriods[0]?.id || '');
       setIsLoaded(true);
     });
@@ -151,12 +153,27 @@ export default function App() {
     rejectReason?: string;
   } | null>(null);
 
-  // Initialize on mount: check query params for WhatsApp Actions
+  // Initialize on mount: check query params for WhatsApp Actions or Member Deep-links
   useEffect(() => {
-    // Parse URL query parameters for Interactive Response Bot Action
     const params = new URLSearchParams(window.location.search);
     const action = params.get('action');
     const assignmentId = params.get('assignmentId');
+    const memberParam = params.get('member');
+
+    // Handle direct volunteer member deep-linking (?member=adriana, ?member=keyla, etc.)
+    if (memberParam && members.length > 0) {
+      const q = memberParam.toLowerCase().trim();
+      const found = members.find(m => 
+        m.id.toLowerCase() === q || 
+        m.name.toLowerCase().includes(q) || 
+        q.includes(m.name.toLowerCase())
+      );
+      if (found) {
+        setPortalLoggedMemberId(found.id);
+        setUserMode('servidor');
+        setActiveTab('portal-servidores');
+      }
+    }
 
     if (action && assignmentId && (action === 'confirmar' || action === 'rechazar')) {
       let foundAssignment: Assignment | null = null;
@@ -193,7 +210,7 @@ export default function App() {
         }
       }
     }
-  }, []);
+  }, [members, periods]);
 
   const handleBotSubmit = (status: 'confirmado' | 'rechazado', reason: string) => {
     if (!botResponse) return;
@@ -261,10 +278,11 @@ export default function App() {
         members,
         rules,
         periods,
-        weeklyCultos
+        weeklyCultos,
+        waConfig
       });
     }
-  }, [members, rules, periods, weeklyCultos, isLoaded]);
+  }, [members, rules, periods, weeklyCultos, waConfig, isLoaded]);
 
   // Toast alert launcher helper
   const triggerNotification = (text: string, type: 'success' | 'info' | 'warning' = 'success') => {
@@ -695,6 +713,7 @@ export default function App() {
             periods={periods} 
             setPeriods={setPeriods} 
             members={members}
+            waConfig={waConfig}
             triggerNotification={triggerNotification}
           />
         )}
@@ -721,6 +740,8 @@ export default function App() {
             members={members}
             weeklyCultos={weeklyCultos}
             setWeeklyCultos={setWeeklyCultos}
+            waConfig={waConfig}
+            setWaConfig={setWaConfig}
             onResetSystem={handleResetSystem}
             onImportState={handleImportState}
             onExportState={handleExportState}

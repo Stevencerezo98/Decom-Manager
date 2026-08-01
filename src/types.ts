@@ -67,3 +67,13 @@ export interface WhatsAppMessageSim {
   timestamp: string;
   status: 'sent' | 'delivered' | 'read';
 }
+
+export interface AppWhatsAppConfig {
+  template: string;
+  verse: string;
+  dressCode: string;
+  gatewayUrl?: string;
+  apiKey?: string;
+  autoSendEnabled?: boolean;
+}
+

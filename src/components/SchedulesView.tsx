@@ -695,13 +695,11 @@ export default function SchedulesView({
                   type="date"
                   value={newDate}
                   onChange={(e) => setNewDate(e.target.value)}
-                  min={activePeriod?.startDate}
-                  max={activePeriod?.endDate}
                   className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl text-sm outline-none focus:border-indigo-500 dark:focus:border-indigo-400 text-gray-800 dark:text-white"
                   required
                 />
                 <span className="text-[10px] text-gray-400 block">
-                  Debe estar dentro del ciclo activo ({activePeriod?.startDate} al {activePeriod?.endDate}).
+                  Puedes seleccionar cualquier fecha de servicio o culto (incluyendo Jueves, Domingos o eventos especiales).
                 </span>
               </div>
 
@@ -731,9 +729,9 @@ export default function SchedulesView({
                   required
                 >
                   <option value="" disabled>Selecciona un integrante...</option>
-                  {members.filter(m => m.active).map(m => (
+                  {members.map(m => (
                     <option key={m.id} value={m.id}>
-                      {m.photoUrl} {m.name}
+                      {m.photoUrl} {m.name} {!m.active ? '(Inactivo)' : ''}
                     </option>
                   ))}
                 </select>
@@ -748,9 +746,9 @@ export default function SchedulesView({
                   className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl text-sm outline-none cursor-pointer focus:border-indigo-500 text-gray-800 dark:text-white"
                 >
                   <option value="">Sin Apoyo</option>
-                  {members.filter(m => m.active && m.id !== newPrimaryId).map(m => (
+                  {members.filter(m => m.id !== newPrimaryId).map(m => (
                     <option key={m.id} value={m.id}>
-                      {m.photoUrl} {m.name}
+                      {m.photoUrl} {m.name} {!m.active ? '(Inactivo)' : ''}
                     </option>
                   ))}
                 </select>

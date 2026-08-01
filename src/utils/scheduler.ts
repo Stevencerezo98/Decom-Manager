@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Member, AreaType, AssignmentRule, CultoEvent, SchedulePeriod, Assignment } from '../types';
+import { Member, AreaType, AssignmentRule, CultoEvent, SchedulePeriod, Assignment, AppWhatsAppConfig } from '../types';
 import { getDayNameSpanish, DEFAULT_WEEKLY_CULTOS } from '../data';
 
 /**
@@ -287,7 +287,8 @@ export function getWhatsAppMessageText(
   dateStr: string,
   dayName: string,
   baseUrl?: string,
-  assignmentId?: string
+  assignmentId?: string,
+  waConfig?: AppWhatsAppConfig
 ): string {
   // Convert YYYY-MM-DD to a beautiful readable format e.g. "16 de Julio"
   const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -295,6 +296,7 @@ export function getWhatsAppMessageText(
   const dayNum = dateObj.getDate();
   const monthName = months[dateObj.getMonth()];
   const yearNum = dateObj.getFullYear();
+  const readableDate = `${dayNum} de ${monthName}, ${yearNum}`;
   
   // Map emojis safely using String.fromCodePoint to avoid bundler or encoding issues
   let safeAreaEmoji = areaEmoji;
@@ -311,29 +313,65 @@ export function getWhatsAppMessageText(
     else if (safeAreaEmoji === '📱') safeAreaEmoji = String.fromCodePoint(0x1F4F1);
   }
 
-  const emojiWave = String.fromCodePoint(0x1F44B);
   const emojiCheck = String.fromCodePoint(0x2705);
   const emojiCross = String.fromCodePoint(0x274C);
+
+  // Construct direct confirmation links
+  const origin = baseUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+  const memberSlug = encodeURIComponent(memberName.toLowerCase());
+  
+  let linkConfirmation = `${origin}/?member=${memberSlug}`;
+  if (assignmentId) {
+    linkConfirmation = `${origin}/?member=${memberSlug}&assignmentId=${assignmentId}`;
+  }
+
+  const linkConfirmDirect = assignmentId 
+    ? `${origin}/?action=confirmar&assignmentId=${assignmentId}`
+    : `${origin}/?member=${memberSlug}`;
+
+  const linkDeclineDirect = assignmentId 
+    ? `${origin}/?action=rechazar&assignmentId=${assignmentId}`
+    : `${origin}/?member=${memberSlug}`;
+
+  // If custom template is set, evaluate placeholders
+  if (waConfig && waConfig.template) {
+    let result = waConfig.template
+      .replace(/\{nombre\}/gi, memberName)
+      .replace(/\{area\}/gi, areaName)
+      .replace(/\{emoji\}/gi, safeAreaEmoji)
+      .replace(/\{fecha\}/gi, readableDate)
+      .replace(/\{dia\}/gi, dayName)
+      .replace(/\{hora\}/gi, 'Recuerda llegar 30 minutos antes para preparación.')
+      .replace(/\{versiculo\}/gi, waConfig.verse || 'Sirvan al Señor con alegría - Salmos 100:2')
+      .replace(/\{vestimenta\}/gi, waConfig.dressCode || 'Formal / Uniforme DECOM')
+      .replace(/\{link_confirmacion\}/gi, `${emojiCheck} Confirmar:\n${linkConfirmDirect}\n\n${emojiCross} Declinar:\n${linkDeclineDirect}`);
+
+    return result;
+  }
+
+  // Fallback default format
+  const emojiWave = String.fromCodePoint(0x1F44B);
   const emojiHeart = String.fromCodePoint(0x2764) + String.fromCodePoint(0xFE0F);
   const emojiHands = String.fromCodePoint(0x1F64F);
 
   let msg = `Hola *${memberName}* ${emojiWave}\n\n` +
          `Te escribimos de parte del *Departamento de Comunicaciones (DECOM)* para recordarte tu servicio asignado:\n\n` +
          `*Área:* ${safeAreaEmoji} ${areaName}\n` +
-         `*Día:* ${dayName} ${dayNum} de ${monthName}, ${yearNum}\n` +
-         `*Hora:* Recuerda llegar 30 minutos antes para preparación y pruebas.\n\n` +
-         `Tu apoyo es fundamental para que el mensaje llegue con excelencia a cada rincón.\n\n`;
+         `*Día:* ${dayName} ${readableDate}\n` +
+         `*Hora:* Recuerda llegar 30 minutos antes para preparación y pruebas.\n\n`;
 
-  if (baseUrl && assignmentId) {
-    msg += `Por favor, confirma tu asistencia presionando uno de los siguientes enlaces:\n\n` +
-           `${emojiCheck} *Confirmar asistencia:*\n${baseUrl}/?action=confirmar&assignmentId=${assignmentId}\n\n` +
-           `${emojiCross} *No podré asistir:*\n${baseUrl}/?action=rechazar&assignmentId=${assignmentId}\n\n`;
-  } else {
-    msg += `Por favor, confirma tu asistencia respondiendo a este mensaje o presionando uno de los siguientes enlaces:\n` +
-           `${emojiCheck} *Confirmar asistencia*\n` +
-           `${emojiCross} *No podré asistir*\n\n`;
+  if (waConfig?.verse) {
+    msg += `📖 *Versículo:* "${waConfig.verse}"\n`;
+  }
+  if (waConfig?.dressCode) {
+    msg += `👔 *Vestimenta:* ${waConfig.dressCode}\n`;
   }
 
-  msg += `¡Muchas gracias por servir con amor y dedicación! ${emojiHeart}${emojiHands}`;
+  msg += `\nPor favor, confirma tu asistencia presionando uno de los siguientes enlaces:\n\n` +
+         `${emojiCheck} *Confirmar asistencia:*\n${linkConfirmDirect}\n\n` +
+         `${emojiCross} *No podré asistir:*\n${linkDeclineDirect}\n\n` +
+         `¡Muchas gracias por servir con amor y dedicación! ${emojiHeart}${emojiHands}`;
+
   return msg;
 }
+

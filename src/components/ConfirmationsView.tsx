@@ -20,7 +20,7 @@ import {
   MoreVertical,
   Copy
 } from 'lucide-react';
-import { Member, SchedulePeriod, Assignment, AreaType } from '../types';
+import { Member, SchedulePeriod, Assignment, AreaType, AppWhatsAppConfig } from '../types';
 import { AREAS_METADATA, getDayNameSpanish } from '../data';
 import { getWhatsAppMessageText } from '../utils/scheduler';
 
@@ -28,6 +28,7 @@ interface ConfirmationsViewProps {
   periods: SchedulePeriod[];
   setPeriods: React.Dispatch<React.SetStateAction<SchedulePeriod[]>>;
   members: Member[];
+  waConfig?: AppWhatsAppConfig;
   triggerNotification: (text: string, type: 'success' | 'info' | 'warning') => void;
 }
 
@@ -35,10 +36,16 @@ export default function ConfirmationsView({
   periods,
   setPeriods,
   members,
+  waConfig,
   triggerNotification
 }: ConfirmationsViewProps) {
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
   const [activeDropdownId, setActiveDropdownId] = useState<string | null>(null);
+  
+  // Filter toggle for hiding past dates (defaults to true)
+  const [hidePastDates, setHidePastDates] = useState<boolean>(true);
+  const todayStr = new Date().toISOString().split('T')[0];
+
 
   const handleManualUpdateStatus = (
     assignmentId: string, 
@@ -72,7 +79,66 @@ export default function ConfirmationsView({
     ? [...periods].sort((a, b) => b.startDate.localeCompare(a.startDate))[0]
     : null;
 
-  const currentAssignments = latestPeriod ? latestPeriod.assignments : [];
+  const rawAssignments = latestPeriod ? latestPeriod.assignments : allAssignments;
+
+  // Filter by past dates if hidePastDates is enabled
+  const currentAssignments = hidePastDates 
+    ? rawAssignments.filter(a => a.date >= todayStr)
+    : rawAssignments;
+
+  // Function to generate and copy summary for the WhatsApp group
+  const handleCopyGroupSummary = () => {
+    if (currentAssignments.length === 0) {
+      triggerNotification('No hay asignaciones para resumir.', 'warning');
+      return;
+    }
+
+    // Group upcoming assignments by date
+    const datesMap: { [dateStr: string]: Assignment[] } = {};
+    currentAssignments.forEach(a => {
+      if (!datesMap[a.date]) datesMap[a.date] = [];
+      datesMap[a.date].push(a);
+    });
+
+    // Pick the earliest date (next upcoming culto)
+    const sortedDates = Object.keys(datesMap).sort();
+    const nextDateStr = sortedDates[0];
+    const assignmentsForNextCulto = datesMap[nextDateStr];
+
+    if (!nextDateStr || !assignmentsForNextCulto) return;
+
+    const dObj = new Date(nextDateStr + 'T00:00:00');
+    const daySp = getDayNameSpanish(nextDateStr);
+    const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    const readableDate = `${dObj.getDate()} de ${months[dObj.getMonth()]}, ${dObj.getFullYear()}`;
+
+    let summary = `📢 *CRONOGRAMA DE COMUNICACIONES (DECOM)*\n` +
+                  `🗓️ *${daySp} ${readableDate}*\n\n`;
+
+    assignmentsForNextCulto.forEach(a => {
+      const meta = AREAS_METADATA.find(am => am.name === a.area);
+      const m = members.find(mem => mem.id === a.primaryMemberId);
+      const supp = a.supportMemberId ? members.find(mem => mem.id === a.supportMemberId) : null;
+
+      summary += `${meta?.emoji || '📋'} *${a.area}:* ${m?.name || 'Por asignar'}`;
+      if (supp) summary += ` (Apoyo: ${supp.name})`;
+      summary += `\n`;
+    });
+
+    summary += `\n⏰ *Recordatorio:* Favor de llegar 30 minutos antes para pruebas y preparación.\n`;
+    summary += `📖 *Versículo:* "${waConfig?.verse || 'Sirvan al Señor con alegría - Salmos 100:2'}"\n\n`;
+    summary += `Confirmaciones directas: ${window.location.origin}/?member=tu_nombre\n`;
+    summary += `¡Dios les bendiga enormemente! ❤️🙏`;
+
+    navigator.clipboard.writeText(summary)
+      .then(() => {
+        triggerNotification(`¡Resumen para el Grupo de WhatsApp del ${daySp} ${dObj.getDate()} copiado al portapapeles!`, 'success');
+      })
+      .catch(() => {
+        triggerNotification('No se pudo copiar el resumen.', 'warning');
+      });
+  };
+
 
   const handleSimulateSend = (assignmentId: string) => {
     // Force set as notified
@@ -133,7 +199,8 @@ export default function ConfirmationsView({
       nextPending.date, 
       nextDaySp, 
       window.location.origin, 
-      nextPending.id
+      nextPending.id,
+      waConfig
     );
     
     const cleanPhone = nextMember.phone.replace(/[^0-9]/g, '');
@@ -150,7 +217,8 @@ export default function ConfirmationsView({
       nextPending.date, 
       nextDaySp, 
       window.location.origin, 
-      nextPending.id
+      nextPending.id,
+      waConfig
     );
     
     navigator.clipboard.writeText(urlText)
@@ -195,7 +263,8 @@ export default function ConfirmationsView({
         activeAssignment.date, 
         getDayNameSpanish(activeAssignment.date), 
         window.location.origin, 
-        activeAssignment.id
+        activeAssignment.id,
+        waConfig
       )
     : '';
 
@@ -300,14 +369,39 @@ export default function ConfirmationsView({
           </div>
 
           <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 shadow-xs space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-gray-900 dark:text-white text-base flex items-center gap-2">
-                <Inbox className="w-5 h-5 text-indigo-500" />
-                Bitácora de Notificaciones (WhatsApp)
-              </h3>
-              <span className="text-xs text-gray-400 bg-gray-50 dark:bg-gray-800 px-2.5 py-1 rounded-full font-mono font-bold">
-                Ciclo Actual
-              </span>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-gray-900 dark:text-white text-base flex items-center gap-2">
+                  <Inbox className="w-5 h-5 text-indigo-500" />
+                  Bitácora de Notificaciones (WhatsApp)
+                </h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Gestiona el envío individual y grupal de recordatorios para los próximos cultos.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyGroupSummary}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  title="Copiar un resumen listo para pegar en el grupo oficial de WhatsApp"
+                  id="btn-copy-group-summary"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>📋 Copiar Resumen para Grupo</span>
+                </button>
+
+                <label className="flex items-center gap-2 text-xs font-bold text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded-xl border border-gray-200 dark:border-gray-700 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={hidePastDates}
+                    onChange={(e) => setHidePastDates(e.target.checked)}
+                    className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer"
+                  />
+                  <span>Ocultar pasados</span>
+                </label>
+              </div>
             </div>
 
             {currentAssignments.length === 0 ? (
@@ -386,7 +480,8 @@ export default function ConfirmationsView({
                                   a.date,
                                   daySp,
                                   window.location.origin,
-                                  a.id
+                                  a.id,
+                                  waConfig
                                 );
                                 navigator.clipboard.writeText(msg)
                                   .then(() => {
@@ -405,7 +500,7 @@ export default function ConfirmationsView({
                               Copiar
                             </button>
                             <a 
-                              href={`https://wa.me/${m?.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(getWhatsAppMessageText(m?.name || '', meta?.emoji || '', a.area, a.date, daySp, window.location.origin, a.id))}`}
+                              href={`https://wa.me/${m?.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(getWhatsAppMessageText(m?.name || '', meta?.emoji || '', a.area, a.date, daySp, window.location.origin, a.id, waConfig))}`}
                               target="_blank"
                               rel="noreferrer"
                               onClick={(e) => { e.stopPropagation(); handleSimulateSend(a.id); }}

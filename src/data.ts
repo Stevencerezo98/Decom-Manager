@@ -3,7 +3,31 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Member, AreaType, AssignmentRule, CultoEvent, SchedulePeriod, Assignment } from './types';
+import { Member, AreaType, AssignmentRule, CultoEvent, SchedulePeriod, Assignment, AppWhatsAppConfig } from './types';
+
+export const DEFAULT_WHATSAPP_CONFIG: AppWhatsAppConfig = {
+  template: `Hola *{nombre}* 👋
+
+Te recordamos tu servicio asignado en el *Departamento de Comunicaciones (DECOM)*:
+
+*Área:* {emoji} {area}
+*Día:* {dia} {fecha}
+*Hora:* Recuerda llegar 30 minutos antes para preparación y pruebas.
+
+📖 *Versículo:* "{versiculo}"
+👔 *Vestimenta sugerida:* {vestimenta}
+
+Por favor confirma tu asistencia presionando el enlace directo:
+{link_confirmacion}
+
+¡Muchas gracias por servir con amor y excelencia! ❤️🙏`,
+  verse: 'Sirvan al Señor con alegría; vengan ante su presencia con regocijo. - Salmos 100:2',
+  dressCode: 'Formal o Uniforme DECOM',
+  gatewayUrl: '',
+  apiKey: '',
+  autoSendEnabled: false
+};
+
 
 // Pre-configured list of members matching exactly the user requested list (excluding Merari and Yennedy)
 export const INITIAL_MEMBERS: Member[] = [
@@ -240,6 +264,7 @@ export interface AppStorageState {
   rules: AssignmentRule[];
   periods: SchedulePeriod[];
   weeklyCultos: typeof DEFAULT_WEEKLY_CULTOS;
+  waConfig?: AppWhatsAppConfig;
 }
 
 const STORAGE_KEY = 'decom_manager_state_v1';
@@ -252,7 +277,11 @@ export function loadStateFromStorage(): AppStorageState {
   const data = localStorage.getItem(STORAGE_KEY);
   if (data) {
     try {
-      return JSON.parse(data);
+      const parsed = JSON.parse(data);
+      return {
+        ...parsed,
+        waConfig: parsed.waConfig || DEFAULT_WHATSAPP_CONFIG
+      };
     } catch (e) {
       console.error('Error parsing stored DECOM manager state:', e);
     }
@@ -262,7 +291,8 @@ export function loadStateFromStorage(): AppStorageState {
     members: INITIAL_MEMBERS,
     rules: INITIAL_RULES,
     periods: [], // Generated automatically on first demand or seeded
-    weeklyCultos: DEFAULT_WEEKLY_CULTOS
+    weeklyCultos: DEFAULT_WEEKLY_CULTOS,
+    waConfig: DEFAULT_WHATSAPP_CONFIG
   };
 }
 
@@ -295,6 +325,7 @@ export async function loadStateFromServer(): Promise<AppStorageState> {
           rules: data.rules || INITIAL_RULES,
           periods: data.periods || [],
           weeklyCultos: data.weeklyCultos || DEFAULT_WEEKLY_CULTOS,
+          waConfig: data.waConfig || DEFAULT_WHATSAPP_CONFIG,
         };
       }
     }

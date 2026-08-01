@@ -44,11 +44,15 @@ export default function CalendarView({
   const [selectedAreaFilter, setSelectedAreaFilter] = useState<string>('all');
   const [selectedMemberFilter, setSelectedMemberFilter] = useState<string>('all');
   
-  // Simulation anchor date: July 2026 (Since we simulate July 16, 2026)
-  const [currentDate, setCurrentDate] = useState<Date>(new Date(2026, 6, 16)); // July 16, 2026
+  // Real today date string YYYY-MM-DD
+  const todayStr = new Date().toISOString().split('T')[0];
+  
+  // Dynamic current date initialization (defaults to real today Date)
+  const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
   
   // Selected assignment for the detail modal
   const [editingAssignment, setEditingAssignment] = useState<Assignment | null>(null);
+
   
   // State for tracking what is being dragged
   const [draggedAssignmentId, setDraggedAssignmentId] = useState<string | null>(null);
@@ -213,7 +217,7 @@ export default function CalendarView({
             }
 
             const dateStr = day.toISOString().split('T')[0];
-            const isToday = dateStr === '2026-07-16'; // Simulation anchor today
+            const isToday = dateStr === todayStr;
             const is16th = day.getDate() === 16;
             const dayAssignments = getFilteredAssignmentsForDate(dateStr);
 
@@ -316,7 +320,7 @@ export default function CalendarView({
         <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
           {weekDates.map((day, idx) => {
             const dateStr = day.toISOString().split('T')[0];
-            const isToday = dateStr === '2026-07-16';
+            const isToday = dateStr === todayStr;
             const dayAssignments = getFilteredAssignmentsForDate(dateStr);
 
             return (
@@ -415,7 +419,7 @@ export default function CalendarView({
   // Daily rendering builders
   const renderDailyView = () => {
     const dateStr = currentDate.toISOString().split('T')[0];
-    const isToday = dateStr === '2026-07-16';
+    const isToday = dateStr === todayStr;
     const daySp = getDayNameSpanish(dateStr);
     const dayAssignments = getFilteredAssignmentsForDate(dateStr);
 
@@ -547,26 +551,46 @@ export default function CalendarView({
 
       {/* Date Navigation Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-gray-900 p-4 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-2xs">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button 
             onClick={handlePrevDate}
             className="p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-800/80 cursor-pointer text-gray-600 dark:text-gray-300 active:scale-95 transition-transform"
             id="btn-calendar-prev"
+            title="Anterior"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
-          <span className="text-base font-extrabold text-gray-800 dark:text-gray-100 font-sans min-w-[150px] text-center">
+          
+          <span className="text-base font-extrabold text-gray-800 dark:text-gray-100 font-sans min-w-[150px] text-center capitalize">
             {currentView === 'month' && currentDate.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
             {currentView === 'week' && `Semana del ${new Date(currentDate).getDate()} ${new Date(currentDate).toLocaleDateString('es-ES', { month: 'short' })}`}
-            {currentView === 'day' && `${currentDate.getDate()} ${currentDate.toLocaleDateString('es-ES', { month: 'long' })}`}
+            {currentView === 'day' && `${currentDate.getDate()} ${currentDate.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}`}
           </span>
+
           <button 
             onClick={handleNextDate}
             className="p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-800/80 cursor-pointer text-gray-600 dark:text-gray-300 active:scale-95 transition-transform"
             id="btn-calendar-next"
+            title="Siguiente"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
+
+          {/* Direct Date Picker Selector */}
+          <div className="flex items-center gap-1.5 ml-2 bg-gray-50 dark:bg-gray-800 px-2.5 py-1.5 rounded-xl border border-gray-200 dark:border-gray-700">
+            <CalendarDays className="w-3.5 h-3.5 text-indigo-500" />
+            <input
+              type="date"
+              value={currentDate.toISOString().split('T')[0]}
+              onChange={(e) => {
+                if (e.target.value) {
+                  const [y, m, d] = e.target.value.split('-').map(Number);
+                  setCurrentDate(new Date(y, m - 1, d));
+                }
+              }}
+              className="bg-transparent border-none text-xs font-mono font-bold outline-none cursor-pointer text-gray-700 dark:text-gray-200"
+            />
+          </div>
         </div>
 
         {/* Filters Panel inside Calendar */}
@@ -600,12 +624,12 @@ export default function CalendarView({
           </div>
 
           <button 
-            onClick={() => { setSelectedAreaFilter('all'); setSelectedMemberFilter('all'); setCurrentDate(new Date(2026, 6, 16)); }}
-            className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold hover:underline flex items-center gap-1 cursor-pointer"
+            onClick={() => { setSelectedAreaFilter('all'); setSelectedMemberFilter('all'); setCurrentDate(new Date()); }}
+            className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 border border-indigo-200 dark:border-indigo-900/50 text-xs text-indigo-700 dark:text-indigo-300 font-bold rounded-xl transition-all flex items-center gap-1 cursor-pointer"
             id="btn-calendar-today-reset"
           >
-            <RefreshCw className="w-3 h-3" />
-            Ir a hoy / Limpiar
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Ir a Hoy</span>
           </button>
         </div>
       </div>

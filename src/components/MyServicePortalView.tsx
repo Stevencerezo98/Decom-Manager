@@ -67,8 +67,8 @@ export default function MyServicePortalView({
   // Selected member details
   const currentMember = members.find(m => m.id === selectedMemberId);
 
-  // Today's date relative to the app's 16 Jul 2026 simulation
-  const SIMULATED_TODAY = '2026-07-16';
+  // Real today date string YYYY-MM-DD
+  const TODAY = new Date().toISOString().split('T')[0];
 
   // Find all assignments of the selected member across all periods
   const myAssignments: { assignment: Assignment; periodId: string }[] = [];
@@ -80,14 +80,22 @@ export default function MyServicePortalView({
     });
   });
 
-  // Separate into upcoming and past
-  const upcomingAssignments = myAssignments
-    .filter(item => item.assignment.date >= SIMULATED_TODAY)
+  // Separate into upcoming and past relative to TODAY
+  let upcomingAssignments = myAssignments
+    .filter(item => item.assignment.date >= TODAY)
     .sort((a, b) => a.assignment.date.localeCompare(b.assignment.date));
 
-  const pastAssignments = myAssignments
-    .filter(item => item.assignment.date < SIMULATED_TODAY)
+  let pastAssignments = myAssignments
+    .filter(item => item.assignment.date < TODAY)
     .sort((a, b) => b.assignment.date.localeCompare(a.assignment.date));
+
+  // Fallback: if all generated assignments are earlier than today (e.g., from July 16),
+  // show all assignments in upcoming sorted ascendingly so the user is never left with an empty view
+  if (upcomingAssignments.length === 0 && myAssignments.length > 0) {
+    upcomingAssignments = [...myAssignments].sort((a, b) => a.assignment.date.localeCompare(b.assignment.date));
+    pastAssignments = [];
+  }
+
 
   // Handle Confirm Assignment
   const handleConfirm = (assignmentId: string) => {
