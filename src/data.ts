@@ -32,107 +32,228 @@ Por favor confirma tu asistencia presionando el enlace directo:
 // Pre-configured list of members matching exactly the user requested list (excluding Merari and Yennedy)
 export const INITIAL_MEMBERS: Member[] = [
   {
-    id: 'steven',
-    name: 'Steven',
-    photoUrl: '👨‍💻',
-    phone: '+506 8421-9988',
+    id: "steven",
+    name: "Steven",
+    photoUrl: "👨‍💻",
+    phone: "+593 99 547 5350",
     active: true,
-    roles: ['Fotografía', 'Proyección', 'Transmisión', 'Publicidad', 'Publicaciones'],
+    roles: [
+      "Fotografía",
+      "Proyección",
+      "Transmisión",
+      "Publicidad",
+      "Publicaciones"
+    ],
     availability: {
-      'Lunes': true, 'Martes': true, 'Miércoles': true, 'Jueves': true, 'Viernes': true, 'Sábado': true, 'Domingo': true
+      "Lunes": true,
+      "Martes": true,
+      "Miércoles": true,
+      "Jueves": true,
+      "Viernes": true,
+      "Sábado": true,
+      "Domingo": true
     },
-    notes: 'Coordinador general del departamento.',
+    notes: "Coordinador general del departamento.",
     blockedDates: []
   },
   {
-    id: 'adriana',
-    name: 'Adriana',
-    photoUrl: '👩‍🎨',
-    phone: '+506 8765-4321',
+    id: "adriana",
+    name: "Adriana",
+    photoUrl: "👩‍🎨",
+    phone: "+593 95 969 4554",
     active: true,
-    roles: ['Fotografía', 'Proyección', 'Publicidad', 'Publicaciones'],
+    roles: [
+      "Publicidad",
+      "Publicaciones"
+    ],
     availability: {
-      'Lunes': true, 'Martes': true, 'Miércoles': true, 'Jueves': true, 'Viernes': true, 'Sábado': true, 'Domingo': true
+      "Lunes": true,
+      "Martes": true,
+      "Miércoles": true,
+      "Jueves": true,
+      "Viernes": true,
+      "Sábado": true,
+      "Domingo": true
     },
-    notes: 'Especialista en diseño y publicaciones.',
+    notes: "Subcoordinadora del Departamento y Especialista en diseño y publicaciones.",
     blockedDates: []
   },
   {
-    id: 'dayanna',
-    name: 'Dayanna',
-    photoUrl: '👩‍📷',
-    phone: '+506 8333-1122',
+    id: "dayanna",
+    name: "Dayanna",
+    photoUrl: "👩‍📷",
+    phone: "+593 98 197 8836",
     active: true,
-    roles: ['Fotografía', 'Transmisión', 'Publicaciones'],
+    roles: [
+      "Fotografía",
+      "Publicaciones"
+    ],
     availability: {
-      'Lunes': false, 'Martes': false, 'Miércoles': false, 'Jueves': false, 'Viernes': false, 'Sábado': true, 'Domingo': true
+      "Lunes": false,
+      "Martes": false,
+      "Miércoles": false,
+      "Jueves": false,
+      "Viernes": false,
+      "Sábado": true,
+      "Domingo": true
     },
-    notes: 'Solo disponible fines de semana por estudios universitarios.',
+    notes: "Solo disponible fines de semana por estudios universitarios.",
     blockedDates: []
   },
   {
-    id: 'keyla',
-    name: 'Keyla',
-    photoUrl: '👩‍🎤',
-    phone: '+506 7211-5544',
+    id: "keyla",
+    name: "Keyla",
+    photoUrl: "👩‍💻",
+    phone: "+593 99 837 8377",
     active: true,
-    roles: ['Fotografía', 'Proyección', 'Transmisión'], // Excludes Publicidad by default roles
+    roles: [
+      "Fotografía",
+      "Proyección"
+    ],
     availability: {
-      'Lunes': true, 'Martes': true, 'Miércoles': true, 'Jueves': true, 'Viernes': true, 'Sábado': true, 'Domingo': true
+      "Lunes": true,
+      "Martes": true,
+      "Miércoles": true,
+      "Jueves": true,
+      "Viernes": true,
+      "Sábado": true,
+      "Domingo": true
     },
-    notes: 'No asignable a Publicidad.',
+    notes: "No asignable a Publicidad.",
     blockedDates: []
   },
   {
-    id: 'shara',
-    name: 'Shara',
-    photoUrl: '👩‍💻',
-    phone: '+506 8555-9900',
+    id: "shara",
+    name: "Shara",
+    photoUrl: "👩‍💻",
+    phone: "+593 99 310 5545",
     active: true,
-    roles: ['Proyección', 'Fotografía'],
+    roles: [
+      "Proyección",
+      "Fotografía",
+      "Transmisión"
+    ],
     availability: {
-      'Lunes': true, 'Martes': true, 'Miércoles': true, 'Jueves': true, 'Viernes': true, 'Sábado': true, 'Domingo': true
+      "Lunes": true,
+      "Martes": true,
+      "Miércoles": true,
+      "Jueves": true,
+      "Viernes": true,
+      "Sábado": true,
+      "Domingo": true
     },
-    notes: 'Cumple roles específicos por día de la semana.',
+    notes: "Cumple roles específicos por día de la semana.",
     blockedDates: []
   },
   {
-    id: 'melanie',
-    name: 'Melanie',
-    photoUrl: '👩‍💼',
-    phone: '+506 7122-3344',
+    id: "melanie",
+    name: "Melanie",
+    photoUrl: "👩‍💼",
+    phone: "+593 96 828 3761",
     active: true,
-    roles: ['Fotografía', 'Proyección', 'Publicidad'],
+    roles: [
+      "Proyección",
+      "Transmisión"
+    ],
     availability: {
-      'Lunes': true, 'Martes': true, 'Miércoles': true, 'Jueves': true, 'Viernes': true, 'Sábado': true, 'Domingo': true
+      "Lunes": false,
+      "Martes": false,
+      "Miércoles": false,
+      "Jueves": false,
+      "Viernes": false,
+      "Sábado": true,
+      "Domingo": true
     },
-    notes: 'Alta disponibilidad.',
+    notes: "Solo disponible los Fines de Semana",
     blockedDates: []
   },
   {
-    id: 'dagner',
-    name: 'Dagner',
-    photoUrl: '👨‍🎥',
-    phone: '+506 6011-8899',
+    id: "dagner",
+    name: "Dagner",
+    photoUrl: "👨‍🎥",
+    phone: "+593 99 282 6262",
     active: true,
-    roles: ['Transmisión'],
+    roles: [
+      "Transmisión",
+      "Fotografía"
+    ],
     availability: {
-      'Lunes': true, 'Martes': true, 'Miércoles': true, 'Jueves': true, 'Viernes': true, 'Sábado': true, 'Domingo': true
+      "Lunes": true,
+      "Martes": true,
+      "Miércoles": true,
+      "Jueves": true,
+      "Viernes": true,
+      "Sábado": true,
+      "Domingo": true
     },
-    notes: 'Apoyo específico para transmisión martes y jueves.',
+    notes: "Apoyo específico para transmisión martes y jueves.",
     blockedDates: []
   },
   {
-    id: 'jeremias',
-    name: 'Jeremías',
-    photoUrl: '👨‍🔧',
-    phone: '+506 6200-7766',
+    id: "jeremias",
+    name: "Jeremías",
+    photoUrl: "👨‍🔧",
+    phone: "+593 93 936 5205",
     active: true,
-    roles: ['Transmisión'],
+    roles: [
+      "Transmisión"
+    ],
     availability: {
-      'Lunes': true, 'Martes': true, 'Miércoles': true, 'Jueves': true, 'Viernes': true, 'Sábado': true, 'Domingo': true
+      "Lunes": true,
+      "Martes": true,
+      "Miércoles": true,
+      "Jueves": true,
+      "Viernes": true,
+      "Sábado": true,
+      "Domingo": true
     },
-    notes: 'Apoyo específico para transmisión fines de semana.',
+    notes: "Apoyo específico para transmisión fines de semana.",
+    blockedDates: []
+  },
+  {
+    id: "yennedi",
+    name: "Yennedi",
+    photoUrl: "👩‍📷",
+    phone: "+593 96 962 1629",
+    active: false,
+    roles: [
+      "Fotografía",
+      "Proyección",
+      "Transmisión"
+    ],
+    availability: {
+      "Lunes": true,
+      "Martes": true,
+      "Miércoles": true,
+      "Jueves": true,
+      "Viernes": true,
+      "Sábado": true,
+      "Domingo": true
+    },
+    notes: "",
+    blockedDates: []
+  },
+  {
+    id: "merari",
+    name: "Merari",
+    photoUrl: "👩‍💻",
+    phone: "+593 99 186 2375",
+    active: false,
+    roles: [
+      "Fotografía",
+      "Proyección",
+      "Transmisión"
+    ],
+    availability: {
+      "Lunes": true,
+      "Martes": true,
+      "Miércoles": true,
+      "Jueves": true,
+      "Viernes": true,
+      "Sábado": true,
+      "Domingo": true
+    },
+    notes: "",
     blockedDates: []
   }
 ];

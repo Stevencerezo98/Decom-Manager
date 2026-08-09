@@ -1,27 +1,30 @@
-import express from "express";
+import express, { Request, Response } from "express";
 import path from "path";
 import cors from "cors";
 import mysql from "mysql2/promise";
 import dotenv from "dotenv";
 import pkg from "whatsapp-web.js";
 import qrcode from "qrcode-terminal";
+import QRCode from "qrcode";
 
 const { Client, LocalAuth, Buttons } = pkg;
 
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
-// Interfaces for TypeScript Safety
+// ==========================================
+// 1. INTERFACES Y TIPOS TypeScript
+// ==========================================
 export interface OpcionConfig {
-  key: string;            // e.g. "1", "2", "CONFIRMAR", "CANCELAR"
-  label: string;          // e.g. "Confirmar Asistencia"
+  key: string;            // Ej: "1", "2", "CONFIRMAR", "CANCELAR"
+  label: string;          // Ej: "Confirmar Asistencia"
   target_status: "CONFIRMADO" | "CANCELADO" | "PENDIENTE";
-  bot_response: string;   // e.g. "¡Gracias por confirmar tu servicio!"
+  bot_response: string;   // Ej: "¡Gracias por confirmar tu servicio!"
 }
 
 export interface PlantillaConfig {
@@ -44,7 +47,7 @@ export interface ConfirmacionRecord {
   created_at?: string;
 }
 
-// In-Memory Fallbacks in case MySQL service is not reachable
+// Configuración por defecto en memoria
 let defaultPlantillaConfig: PlantillaConfig = {
   id: 1,
   tipo_interaccion: "NUMBERS",
@@ -67,16 +70,18 @@ let defaultPlantillaConfig: PlantillaConfig = {
 
 let inMemoryConfirmaciones: ConfirmacionRecord[] = [];
 
-// MySQL Pool Connection
+// ==========================================
+// 2. CONEXIÓN MYSQL Y ESQUEMAS TABLAS SQL
+// ==========================================
 let pool: mysql.Pool | null = null;
 
-async function initDB() {
+async function initDB(): Promise<void> {
   try {
     pool = mysql.createPool({
-      host: process.env.DB_HOST || 'localhost',
-      user: process.env.DB_USER || 'root',
-      password: process.env.DB_PASSWORD || '',
-      database: process.env.DB_NAME || 'decom_manager',
+      host: process.env.DB_HOST || "127.0.0.1",
+      user: process.env.DB_USER || "sql_decom",
+      password: process.env.DB_PASSWORD || "06129812",
+      database: process.env.DB_NAME || "decom_manager",
       waitForConnections: true,
       connectionLimit: 10,
       queueLimit: 0
@@ -84,15 +89,15 @@ async function initDB() {
 
     const connection = await pool.getConnection();
 
-    // 1. Existing app_state table
+    // Tabla 1: app_state
     await connection.query(`
       CREATE TABLE IF NOT EXISTS app_state (
         id INT PRIMARY KEY,
         state_json LONGTEXT
-      )
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
-    // 2. Tabla plantilla_config
+    // Tabla 2: plantilla_config
     await connection.query(`
       CREATE TABLE IF NOT EXISTS plantilla_config (
         id INT PRIMARY KEY AUTO_INCREMENT,
@@ -100,10 +105,10 @@ async function initDB() {
         mensaje_encabezado TEXT NOT NULL,
         opciones JSON NOT NULL,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      )
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
-    // 3. Tabla confirmaciones
+    // Tabla 3: confirmaciones
     await connection.query(`
       CREATE TABLE IF NOT EXISTS confirmaciones (
         id INT PRIMARY KEY AUTO_INCREMENT,
@@ -116,140 +121,35 @@ async function initDB() {
         respuesta_recibida TEXT NULL,
         fecha_respuesta TIMESTAMP NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
-    // Seed default plantilla_config if empty
-    const [rows] = await connection.query('SELECT id FROM plantilla_config WHERE id = 1');
+    // Semilla inicial plantilla_config
+    const [rows] = await connection.query("SELECT id FROM plantilla_config WHERE id = 1");
     if ((rows as any[]).length === 0) {
       await connection.query(
-        'INSERT INTO plantilla_config (id, tipo_interaccion, mensaje_encabezado, opciones) VALUES (1, ?, ?, ?)',
+        "INSERT INTO plantilla_config (id, tipo_interaccion, mensaje_encabezado, opciones) VALUES (1, ?, ?, ?)",
         [defaultPlantillaConfig.tipo_interaccion, defaultPlantillaConfig.mensaje_encabezado, JSON.stringify(defaultPlantillaConfig.opciones)]
       );
     }
 
-    // Seed app_state initial row
-    const [appRows] = await connection.query('SELECT id FROM app_state WHERE id = 1');
+    // Semilla inicial app_state
+    const [appRows] = await connection.query("SELECT id FROM app_state WHERE id = 1");
     if ((appRows as any[]).length === 0) {
-      await connection.query('INSERT INTO app_state (id, state_json) VALUES (1, ?)', ['{}']);
+      await connection.query("INSERT INTO app_state (id, state_json) VALUES (1, ?)", ["{}"]);
     }
 
     connection.release();
-    console.log('✅ MySQL Database & Tables (plantilla_config, confirmaciones) initialized.');
+    console.log("✅ MySQL Database y Tablas SQL ('plantilla_config', 'confirmaciones') inicializadas correctamente.");
   } catch (error) {
-    console.error('⚠️ MySQL Connection Error (running in fallback state mode):', (error as Error).message);
+    console.error("⚠️ Error conectando a MySQL (Modo fallback activo):", (error as Error).message);
     pool = null;
   }
 }
 
-// WhatsApp Web Client Setup
-let waStatus: "DISCONNECTED" | "QR_READY" | "AUTHENTICATED" | "READY" = "DISCONNECTED";
-let qrCodeData: string | null = null;
-let client: any = null;
-
-function initWhatsAppClient() {
-  try {
-    client = new Client({
-      authStrategy: new LocalAuth({ dataPath: "./.wwebjs_auth" }),
-      puppeteer: {
-        headless: true,
-        args: [
-          "--no-sandbox",
-          "--disable-setuid-sandbox",
-          "--disable-dev-shm-usage",
-          "--disable-accelerated-2d-canvas",
-          "--no-first-run",
-          "--no-zygote",
-          "--disable-gpu"
-        ]
-      }
-    });
-
-    client.on("qr", (qr: string) => {
-      waStatus = "QR_READY";
-      qrCodeData = qr;
-      console.log("📲 ESCANEA ESTE CÓDIGO QR PARA VINCULAR WHATSAPP AUTOMATION:");
-      qrcode.generate(qr, { small: true });
-    });
-
-    client.on("authenticated", () => {
-      waStatus = "AUTHENTICATED";
-      qrCodeData = null;
-      console.log("✅ Sesión de WhatsApp autenticada correctamente.");
-    });
-
-    client.on("ready", () => {
-      waStatus = "READY";
-      console.log("🚀 Cliente de WhatsApp Automation listo para enviar y recibir mensajes.");
-    });
-
-    client.on("disconnected", (reason: string) => {
-      waStatus = "DISCONNECTED";
-      console.log("⚠️ Cliente de WhatsApp desconectado:", reason);
-    });
-
-    // 📩 LISTENER CLIENTE: Escuchar respuestas entrantes y actualizar confirmaciones en MySQL
-    client.on("message", async (msg: any) => {
-      try {
-        const fromNumber = msg.from.replace("@c.us", "").replace(/[^0-9]/g, "");
-        const textBody = (msg.body || "").trim();
-        console.log(`📩 Mensaje entrante de WhatsApp [${fromNumber}]: "${textBody}"`);
-
-        // Get active configuration from MySQL or fallback
-        let config = await getActivePlantillaConfig();
-
-        // Find pending confirmation for this phone in MySQL or memory
-        let pendingRecord = await findPendingConfirmation(fromNumber);
-
-        if (!pendingRecord) {
-          console.log(`ℹ️ No se encontró confirmación PENDIENTE para el número ${fromNumber}`);
-          return;
-        }
-
-        // Match response against options
-        let matchedOption = config.opciones.find(opt => {
-          const keyMatch = opt.key.toLowerCase() === textBody.toLowerCase();
-          const labelMatch = opt.label.toLowerCase() === textBody.toLowerCase();
-          const numberMatch = textBody.startsWith(opt.key);
-          return keyMatch || labelMatch || numberMatch;
-        });
-
-        // Default to option 1 if thumbs up emoji or "sí"
-        if (!matchedOption) {
-          if (["si", "sí", "confirmo", "👍", "ok"].includes(textBody.toLowerCase())) {
-            matchedOption = config.opciones.find(o => o.target_status === "CONFIRMADO") || config.opciones[0];
-          } else if (["no", "cancelar", "rechazar", "👎"].includes(textBody.toLowerCase())) {
-            matchedOption = config.opciones.find(o => o.target_status === "CANCELADO") || config.opciones[1];
-          }
-        }
-
-        if (matchedOption) {
-          // Update record in MySQL
-          await updateConfirmationStatus(
-            pendingRecord.id!,
-            matchedOption.target_status,
-            textBody
-          );
-
-          // Reply back via WhatsApp
-          const replyText = matchedOption.bot_response.replace(/{nombre}/gi, pendingRecord.nombre);
-          await msg.reply(replyText);
-          console.log(`✅ Respuesta automática enviada a ${pendingRecord.nombre}: "${replyText}"`);
-        }
-      } catch (err) {
-        console.error("❌ Error en listener client.on('message'):", err);
-      }
-    });
-
-    client.initialize().catch((err: any) => {
-      console.log("ℹ️ WhatsApp Web Client initialize standby:", err.message || err);
-    });
-  } catch (err) {
-    console.log("ℹ️ Standard Puppeteer launch skipped in sandbox mode. Automation API endpoints ready.");
-  }
-}
-
-// Database Helper Functions
+// ==========================================
+// 3. FUNCIONES AUXILIARES DE BASE DE DATOS
+// ==========================================
 async function getActivePlantillaConfig(): Promise<PlantillaConfig> {
   if (pool) {
     try {
@@ -264,7 +164,7 @@ async function getActivePlantillaConfig(): Promise<PlantillaConfig> {
         };
       }
     } catch (e) {
-      console.error("Error fetching plantilla_config from MySQL:", e);
+      console.error("Error obteniendo plantilla_config de MySQL:", e);
     }
   }
   return defaultPlantillaConfig;
@@ -278,11 +178,14 @@ async function savePlantillaConfig(config: PlantillaConfig): Promise<PlantillaCo
       await pool.query(
         `INSERT INTO plantilla_config (id, tipo_interaccion, mensaje_encabezado, opciones) 
          VALUES (1, ?, ?, ?) 
-         ON DUPLICATE KEY UPDATE tipo_interaccion = VALUES(tipo_interaccion), mensaje_encabezado = VALUES(mensaje_encabezado), opciones = VALUES(opciones)`,
+         ON DUPLICATE KEY UPDATE 
+           tipo_interaccion = VALUES(tipo_interaccion), 
+           mensaje_encabezado = VALUES(mensaje_encabezado), 
+           opciones = VALUES(opciones)`,
         [config.tipo_interaccion, config.mensaje_encabezado, opcionesJson]
       );
     } catch (e) {
-      console.error("Error saving plantilla_config to MySQL:", e);
+      console.error("Error guardando plantilla_config en MySQL:", e);
     }
   }
   return defaultPlantillaConfig;
@@ -300,7 +203,7 @@ async function findPendingConfirmation(phone: string): Promise<ConfirmacionRecor
         return (rows as any[])[0] as ConfirmacionRecord;
       }
     } catch (e) {
-      console.error("Error querying confirmaciones in MySQL:", e);
+      console.error("Error buscando confirmación PENDIENTE en MySQL:", e);
     }
   }
   return inMemoryConfirmaciones.find(
@@ -308,7 +211,7 @@ async function findPendingConfirmation(phone: string): Promise<ConfirmacionRecor
   ) || null;
 }
 
-async function updateConfirmationStatus(id: number, estado: "CONFIRMADO" | "CANCELADO" | "PENDIENTE", respuesta: string) {
+async function updateConfirmationStatus(id: number, estado: "CONFIRMADO" | "CANCELADO" | "PENDIENTE", respuesta: string): Promise<void> {
   if (pool) {
     try {
       await pool.query(
@@ -316,7 +219,7 @@ async function updateConfirmationStatus(id: number, estado: "CONFIRMADO" | "CANC
         [estado, respuesta, id]
       );
     } catch (e) {
-      console.error("Error updating confirmacion in MySQL:", e);
+      console.error("Error actualizando confirmación en MySQL:", e);
     }
   }
   const rec = inMemoryConfirmaciones.find(c => c.id === id);
@@ -327,7 +230,6 @@ async function updateConfirmationStatus(id: number, estado: "CONFIRMADO" | "CANC
   }
 }
 
-// Helper to format WhatsApp Message Body
 function formatReminderMessage(config: PlantillaConfig, nombre: string, asignacion: string): string {
   let text = config.mensaje_encabezado
     .replace(/\{nombre\}/gi, nombre)
@@ -344,41 +246,167 @@ function formatReminderMessage(config: PlantillaConfig, nombre: string, asignaci
   return text;
 }
 
-// API Routes
+// ==========================================
+// 4. INICIALIZACIÓN WHATSAPP-WEB.JS CON LOCALAUTH
+// ==========================================
+let waStatus: "DISCONNECTED" | "QR_READY" | "AUTHENTICATED" | "READY" = "DISCONNECTED";
+let qrCodeData: string | null = null;
+let qrCodeRaw: string | null = null;
+let client: any = null;
 
-// 1. GET /api/configuracion-plantilla
-app.get("/api/configuracion-plantilla", async (req, res) => {
+function initWhatsAppClient(): void {
+  try {
+    client = new Client({
+      authStrategy: new LocalAuth({ dataPath: "./.wwebjs_auth" }),
+      puppeteer: {
+        headless: true,
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-accelerated-2d-canvas",
+          "--no-first-run",
+          "--no-zygote",
+          "--disable-gpu"
+        ]
+      }
+    });
+
+    client.on("qr", async (qr: string) => {
+      waStatus = "QR_READY";
+      qrCodeRaw = qr;
+      try {
+        qrCodeData = await QRCode.toDataURL(qr);
+      } catch (err) {
+        qrCodeData = qr;
+      }
+      console.log("📲 ESCANEA ESTE CÓDIGO QR PARA VINCULAR WHATSAPP AUTOMATION:");
+      qrcode.generate(qr, { small: true });
+    });
+
+    client.on("authenticated", () => {
+      waStatus = "AUTHENTICATED";
+      qrCodeData = null;
+      console.log("✅ Sesión de WhatsApp autenticada correctamente.");
+    });
+
+    client.on("ready", () => {
+      waStatus = "READY";
+      console.log("🚀 Cliente WhatsApp Automation listo para enviar y recibir mensajes.");
+    });
+
+    client.on("disconnected", (reason: string) => {
+      waStatus = "DISCONNECTED";
+      console.log("⚠️ Cliente de WhatsApp desconectado:", reason);
+    });
+
+    // ==========================================
+    // 5. LISTENER CLIENT.ON('MESSAGE')
+    // ==========================================
+    client.on("message", async (msg: any) => {
+      try {
+        const fromNumber = msg.from.replace("@c.us", "").replace(/[^0-9]/g, "");
+        const textBody = (msg.body || "").trim();
+        console.log(`📩 Mensaje entrante de WhatsApp [${fromNumber}]: "${textBody}"`);
+
+        // Obtenemos la configuración activa desde MySQL
+        const config = await getActivePlantillaConfig();
+
+        // Buscamos si el usuario tiene un recordatorio PENDIENTE en MySQL
+        const pendingRecord = await findPendingConfirmation(fromNumber);
+
+        if (!pendingRecord) {
+          console.log(`ℹ️ No hay confirmación PENDIENTE para el teléfono ${fromNumber}`);
+          return;
+        }
+
+        // Evaluar respuesta contra las opciones (botón o número "1", "2")
+        let matchedOption = config.opciones.find(opt => {
+          const keyMatch = opt.key.toLowerCase() === textBody.toLowerCase();
+          const labelMatch = opt.label.toLowerCase() === textBody.toLowerCase();
+          const numberMatch = textBody.startsWith(opt.key);
+          return keyMatch || labelMatch || numberMatch;
+        });
+
+        // Coincidencia alternativa por palabras clave / emojis
+        if (!matchedOption) {
+          const cleanText = textBody.toLowerCase();
+          if (["1", "si", "sí", "confirmo", "confirmar", "👍", "ok"].includes(cleanText)) {
+            matchedOption = config.opciones.find(o => o.target_status === "CONFIRMADO") || config.opciones[0];
+          } else if (["2", "no", "cancelar", "rechazar", "👎"].includes(cleanText)) {
+            matchedOption = config.opciones.find(o => o.target_status === "CANCELADO") || config.opciones[1];
+          }
+        }
+
+        if (matchedOption) {
+          // Actualizar estado en MySQL de PENDIENTE a CONFIRMADO o CANCELADO
+          await updateConfirmationStatus(
+            pendingRecord.id!,
+            matchedOption.target_status,
+            textBody
+          );
+
+          // Responder al usuario vía WhatsApp con el mensaje formateado
+          const replyText = matchedOption.bot_response.replace(/\{nombre\}/gi, pendingRecord.nombre);
+          await msg.reply(replyText);
+          console.log(`✅ Estado actualizado a '${matchedOption.target_status}'. Respuesta enviada a ${pendingRecord.nombre}`);
+        }
+      } catch (err) {
+        console.error("❌ Error procesando mensaje en client.on('message'):", err);
+      }
+    });
+
+    client.initialize().catch((err: any) => {
+      console.log("ℹ️ WhatsApp Web Client initialize standby:", err.message || err);
+    });
+  } catch (err) {
+    console.log("ℹ️ Puppeteer initialization in sandbox mode:", err);
+  }
+}
+
+// ==========================================
+// 6. ENDPOINTS RUTAS API (Express)
+// ==========================================
+
+// GET /api/configuracion-plantilla: Cargar plantilla activa
+app.get("/api/configuracion-plantilla", async (req: Request, res: Response) => {
   try {
     const config = await getActivePlantillaConfig();
     res.json(config);
   } catch (err) {
-    res.status(500).json({ error: "Failed to load plantilla_config" });
+    res.status(500).json({ error: "Error al cargar la plantilla de configuración." });
   }
 });
 
-// 2. PUT /api/configuracion-plantilla
-app.put("/api/configuracion-plantilla", async (req, res) => {
+// PUT /api/configuracion-plantilla: Guardar tipo ('BUTTONS' | 'NUMBERS') y opciones JSON
+app.put("/api/configuracion-plantilla", async (req: Request, res: Response) => {
   try {
     const { tipo_interaccion, mensaje_encabezado, opciones } = req.body;
     if (!tipo_interaccion || !mensaje_encabezado || !Array.isArray(opciones)) {
-      return res.status(400).json({ error: "Datos incompletos. Se requiere tipo_interaccion, mensaje_encabezado y opciones (Array)." });
+      return res.status(400).json({ 
+        error: "Se requiere tipo_interaccion ('BUTTONS' | 'NUMBERS'), mensaje_encabezado y arreglo 'opciones'." 
+      });
     }
 
-    const updated = await savePlantillaConfig({
+    const updatedConfig = await savePlantillaConfig({
       tipo_interaccion,
       mensaje_encabezado,
       opciones
     });
 
-    res.json({ success: true, message: "Configuración de plantilla guardada en MySQL.", config: updated });
+    res.json({
+      success: true,
+      message: "Configuración guardada exitosamente en MySQL.",
+      config: updatedConfig
+    });
   } catch (err) {
     console.error("PUT /api/configuracion-plantilla error:", err);
-    res.status(500).json({ error: "Error guardando configuración de plantilla" });
+    res.status(500).json({ error: "Error guardando configuración de plantilla." });
   }
 });
 
-// 3. POST /api/recordatorio-comite
-app.post("/api/recordatorio-comite", async (req, res) => {
+// POST /api/recordatorio-comite: Enviar recordatorio masivo/individual
+app.post("/api/recordatorio-comite", async (req: Request, res: Response) => {
   try {
     const { miembros } = req.body;
     if (!Array.isArray(miembros) || miembros.length === 0) {
@@ -392,7 +420,7 @@ app.post("/api/recordatorio-comite", async (req, res) => {
       const messageBody = formatReminderMessage(config, m.nombre, m.asignacion);
       const cleanPhone = (m.telefono || "").replace(/[^0-9]/g, "");
 
-      // Insert record in MySQL
+      // Insertar registro PENDIENTE en MySQL
       let insertedId = Date.now() + Math.floor(Math.random() * 1000);
       if (pool) {
         try {
@@ -402,7 +430,7 @@ app.post("/api/recordatorio-comite", async (req, res) => {
           );
           insertedId = (result as any).insertId;
         } catch (e) {
-          console.error("MySQL Insert confirmaciones error:", e);
+          console.error("Error insertando confirmación en MySQL:", e);
         }
       }
 
@@ -419,7 +447,7 @@ app.post("/api/recordatorio-comite", async (req, res) => {
       inMemoryConfirmaciones.push(rec);
       createdRecords.push(rec);
 
-      // Send message via whatsapp-web.js if client is ready
+      // Enviar mensaje por WhatsApp con Botones o Texto estructurado
       if (client && waStatus === "READY" && cleanPhone) {
         const chatId = `${cleanPhone}@c.us`;
         if (config.tipo_interaccion === "BUTTONS" && Buttons) {
@@ -429,11 +457,10 @@ app.post("/api/recordatorio-comite", async (req, res) => {
               messageBody,
               buttonList,
               "DECOM Módulo de Servicio",
-              "Responde seleccionando un botón"
+              "Selecciona una opción"
             );
             await client.sendMessage(chatId, buttonMsg);
           } catch (btnErr) {
-            // Fallback to text format if buttons fail
             await client.sendMessage(chatId, messageBody);
           }
         } else {
@@ -450,12 +477,12 @@ app.post("/api/recordatorio-comite", async (req, res) => {
     });
   } catch (err) {
     console.error("POST /api/recordatorio-comite error:", err);
-    res.status(500).json({ error: "Error enviando recordatorios al comité" });
+    res.status(500).json({ error: "Error enviando recordatorio del comité." });
   }
 });
 
-// 4. GET /api/confirmaciones (bitácora de mensajes y respuestas)
-app.get("/api/confirmaciones", async (req, res) => {
+// GET /api/confirmaciones: Consultar bitácora
+app.get("/api/confirmaciones", async (req: Request, res: Response) => {
   try {
     if (pool) {
       const [rows] = await pool.query("SELECT * FROM confirmaciones ORDER BY id DESC LIMIT 100");
@@ -463,22 +490,22 @@ app.get("/api/confirmaciones", async (req, res) => {
     }
     res.json(inMemoryConfirmaciones);
   } catch (err) {
-    res.status(500).json({ error: "Error cargando bitácora de confirmaciones" });
+    res.status(500).json({ error: "Error consultando bitácora de confirmaciones." });
   }
 });
 
-// 5. POST /api/simular-respuesta (para pruebas del bot sin teléfono físico)
-app.post("/api/simular-respuesta", async (req, res) => {
+// POST /api/simular-respuesta: Simulación local
+app.post("/api/simular-respuesta", async (req: Request, res: Response) => {
   try {
     const { telefono, respuesta } = req.body;
     if (!telefono || !respuesta) {
-      return res.status(400).json({ error: "Se requiere telefono y respuesta" });
+      return res.status(400).json({ error: "Se requiere 'telefono' y 'respuesta'." });
     }
 
     const cleanPhone = telefono.replace(/[^0-9]/g, "");
     const pendingRecord = await findPendingConfirmation(cleanPhone);
     if (!pendingRecord) {
-      return res.status(404).json({ error: "No hay confirmación PENDIENTE para este número" });
+      return res.status(404).json({ error: "No hay confirmación PENDIENTE para este número." });
     }
 
     const config = await getActivePlantillaConfig();
@@ -489,7 +516,7 @@ app.post("/api/simular-respuesta", async (req, res) => {
     });
 
     if (!matchedOption) {
-      if (["si", "sí", "confirmo", "👍", "1"].includes(respuesta.toLowerCase())) {
+      if (["1", "si", "sí", "confirmo", "👍"].includes(respuesta.toLowerCase())) {
         matchedOption = config.opciones.find(o => o.target_status === "CONFIRMADO") || config.opciones[0];
       } else {
         matchedOption = config.opciones.find(o => o.target_status === "CANCELADO") || config.opciones[1];
@@ -497,7 +524,7 @@ app.post("/api/simular-respuesta", async (req, res) => {
     }
 
     await updateConfirmationStatus(pendingRecord.id!, matchedOption.target_status, respuesta);
-    const botReply = matchedOption.bot_response.replace(/{nombre}/gi, pendingRecord.nombre);
+    const botReply = matchedOption.bot_response.replace(/\{nombre\}/gi, pendingRecord.nombre);
 
     res.json({
       success: true,
@@ -509,23 +536,47 @@ app.post("/api/simular-respuesta", async (req, res) => {
     });
   } catch (err) {
     console.error("POST /api/simular-respuesta error:", err);
-    res.status(500).json({ error: "Error simulando respuesta" });
+    res.status(500).json({ error: "Error simulando respuesta." });
   }
 });
 
-// 6. GET /api/whatsapp-status
-app.get("/api/whatsapp-status", (req, res) => {
+// GET /api/whatsapp-status: Estado de vinculación y código QR
+app.get("/api/whatsapp-status", (req: Request, res: Response) => {
   res.json({
     status: waStatus,
     qrCode: qrCodeData,
+    qrCodeRaw: qrCodeRaw,
     connected: waStatus === "READY"
   });
 });
 
-// Existing State Routes
-app.get("/api/state", async (req, res) => {
+// POST /api/whatsapp-reconnect: Forzar reconexión y regeneración de QR
+app.post("/api/whatsapp-reconnect", async (req: Request, res: Response) => {
+  try {
+    if (client) {
+      try {
+        await client.destroy();
+      } catch (e) {
+        console.warn("Destroying previous client warning:", e);
+      }
+    }
+    waStatus = "DISCONNECTED";
+    qrCodeData = null;
+    qrCodeRaw = null;
+    client = null;
+
+    initWhatsAppClient();
+    res.json({ success: true, message: "Reconexión de WhatsApp iniciada. Generando nuevo código QR." });
+  } catch (err) {
+    console.error("POST /api/whatsapp-reconnect error:", err);
+    res.status(500).json({ error: "Error forzando la reconexión de WhatsApp." });
+  }
+});
+
+// Rutas de estado global
+app.get("/api/state", async (req: Request, res: Response) => {
   if (!pool) {
-    return res.status(500).json({ error: "No database connection" });
+    return res.status(500).json({ error: "No hay conexión a la base de datos." });
   }
   try {
     const [rows] = await pool.query("SELECT state_json FROM app_state WHERE id = 1");
@@ -535,47 +586,47 @@ app.get("/api/state", async (req, res) => {
       res.json({});
     }
   } catch (error) {
-    console.error("GET /api/state error:", error);
-    res.status(500).json({ error: "Failed to fetch state" });
+    res.status(500).json({ error: "Error al obtener estado." });
   }
 });
 
-app.post("/api/state", async (req, res) => {
+app.post("/api/state", async (req: Request, res: Response) => {
   if (!pool) {
-    return res.status(500).json({ error: "No database connection" });
+    return res.status(500).json({ error: "No hay conexión a la base de datos." });
   }
   try {
     const stateString = JSON.stringify(req.body);
     await pool.query("UPDATE app_state SET state_json = ? WHERE id = 1", [stateString]);
     res.json({ success: true });
   } catch (error) {
-    console.error("POST /api/state error:", error);
-    res.status(500).json({ error: "Failed to save state" });
+    res.status(500).json({ error: "Error al guardar estado." });
   }
 });
 
-async function startServer() {
+// ==========================================
+// 7. INICIALIZACIÓN DEL SERVIDOR
+// ==========================================
+async function startServer(): Promise<void> {
   await initDB();
   initWhatsAppClient();
 
-  // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
-      appType: "spa",
+      appType: "spa"
     });
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*all", (req, res) => {
+    app.get("*all", (req: Request, res: Response) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
+  app.listen(PORT, () => {
+    console.log(`🚀 Servidor ejecutándose en http://0.0.0.0:${PORT}`);
   });
 }
 

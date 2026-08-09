@@ -18,8 +18,14 @@ import {
   Layers,
   Zap,
   Check,
-  Code
+  Code,
+  QrCode,
+  Link2,
+  LogOut,
+  User,
+  Users
 } from 'lucide-react';
+import { INITIAL_MEMBERS } from '../data';
 
 export interface OpcionConfig {
   key: string;            // e.g. "1", "2", "CONFIRMAR", "CANCELAR"
@@ -75,13 +81,22 @@ export const ConfiguracionWhatsApp: React.FC<ConfiguracionWhatsAppProps> = ({ tr
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmaciones, setConfirmaciones] = useState<ConfirmacionRecord[]>([]);
-  const [simPhone, setSimPhone] = useState("+18095550199");
-  const [simName, setSimName] = useState("Adriana Pérez");
-  const [simRole, setSimRole] = useState("Cámara - Culto Dominical");
+  
+  // Member selection state using DB / INITIAL_MEMBERS data
+  const [selectedMemberId, setSelectedMemberId] = useState<string>(INITIAL_MEMBERS[1]?.id || 'adriana');
+  const [simPhone, setSimPhone] = useState(INITIAL_MEMBERS[1]?.phone || "+593 95 969 4554");
+  const [simName, setSimName] = useState(INITIAL_MEMBERS[1]?.name || "Adriana");
+  const [simRole, setSimRole] = useState(INITIAL_MEMBERS[1]?.roles[0] || "Publicidad");
+
   const [sendingTest, setSendingTest] = useState(false);
   const [simAnswer, setSimAnswer] = useState("1");
   const [simulating, setSimulating] = useState(false);
   const [botReplyLog, setBotReplyLog] = useState<{ nombre: string; estado: string; botReply: string } | null>(null);
+
+  // WhatsApp Web Client Link & QR Code State
+  const [waStatus, setWaStatus] = useState<"DISCONNECTED" | "QR_READY" | "AUTHENTICATED" | "READY">("DISCONNECTED");
+  const [qrCodeData, setQrCodeData] = useState<string | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
 
   // Load config from backend
   const fetchConfig = async () => {
@@ -114,10 +129,63 @@ export const ConfiguracionWhatsApp: React.FC<ConfiguracionWhatsAppProps> = ({ tr
     }
   };
 
+  // Fetch WhatsApp Web connection status & QR Code
+  const fetchWaStatus = async () => {
+    try {
+      const res = await fetch('/api/whatsapp-status');
+      if (res.ok) {
+        const data = await res.json();
+        setWaStatus(data.status || "DISCONNECTED");
+        setQrCodeData(data.qrCode || null);
+      }
+    } catch (err) {
+      console.warn('Error fetching whatsapp-status:', err);
+    }
+  };
+
   useEffect(() => {
     fetchConfig();
     fetchConfirmaciones();
+    fetchWaStatus();
+
+    // Poll WhatsApp status every 3 seconds to update QR / READY state in real time
+    const interval = setInterval(fetchWaStatus, 3000);
+    return () => clearInterval(interval);
   }, []);
+
+  // Force WhatsApp Reconnection & Regenerate QR Code
+  const handleForceReconnect = async () => {
+    setReconnecting(true);
+    try {
+      const res = await fetch('/api/whatsapp-reconnect', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        if (triggerNotification) {
+          triggerNotification('🔄 Reconexión iniciada. Generando nuevo código QR...', 'info');
+        }
+        setWaStatus('DISCONNECTED');
+        setQrCodeData(null);
+        setTimeout(fetchWaStatus, 1500);
+      } else {
+        alert(data.error || 'Error al forzar la reconexión.');
+      }
+    } catch (err) {
+      alert('Error de red al conectar con /api/whatsapp-reconnect');
+    } finally {
+      setReconnecting(false);
+    }
+  };
+
+  // Handle Member selection change from DECOM list
+  const handleMemberChange = (memberId: string) => {
+    setSelectedMemberId(memberId);
+    const member = INITIAL_MEMBERS.find(m => m.id === memberId);
+    if (member) {
+      setSimName(member.name);
+      setSimPhone(member.phone);
+      setSimRole(member.roles[0] || 'Servicio DECOM');
+    }
+  };
 
   // Save Plantilla Config via PUT /api/configuracion-plantilla
   const handleSaveConfig = async () => {
@@ -275,10 +343,10 @@ export const ConfiguracionWhatsApp: React.FC<ConfiguracionWhatsAppProps> = ({ tr
               <span>Módulo WhatsApp Automation DECOM</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              Plantilla & Bot de Recordatorios sin Costo
+              Vinculación WhatsApp & Plantilla de Recordatorios
             </h1>
             <p className="text-emerald-100 text-sm max-w-2xl">
-              Configura cómo interactúa el bot con los integrantes del Comité de Comunicaciones. Guarda tus plantillas en MySQL y automatiza confirmaciones por números o botones.
+              Escanea el código QR para conectar WhatsApp Web, administra plantillas en MySQL e interactúa en tiempo real con los integrantes del equipo DECOM.
             </p>
           </div>
 
@@ -292,6 +360,141 @@ export const ConfiguracionWhatsApp: React.FC<ConfiguracionWhatsAppProps> = ({ tr
               <Save className="w-4 h-4 text-emerald-600" />
               <span>{saving ? 'Guardando en MySQL...' : 'Guardar Configuración'}</span>
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* SUBSECCIÓN CLAVE: Vincular WhatsApp Web & Código QR */}
+      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-100 dark:border-gray-800 p-6 sm:p-8 shadow-sm space-y-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-100 dark:border-gray-800 pb-5">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/60 rounded-2xl text-emerald-600 dark:text-emerald-400">
+              <QrCode className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-lg font-extrabold text-gray-900 dark:text-white flex items-center gap-2">
+                <span>Vincular WhatsApp Web (Código QR)</span>
+              </h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                Conecta tu número oficial para enviar recordatorios y procesar respuestas automáticas con <code className="font-mono bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded text-emerald-600">whatsapp-web.js</code>.
+              </p>
+            </div>
+          </div>
+
+          {/* Connected / Status Badge */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-bold shadow-2xs border">
+              {waStatus === "READY" ? (
+                <span className="flex items-center gap-2 text-emerald-700 bg-emerald-50 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800 px-3 py-1 rounded-xl">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>WhatsApp Conectado & Listo</span>
+                </span>
+              ) : waStatus === "QR_READY" ? (
+                <span className="flex items-center gap-2 text-amber-700 bg-amber-50 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800 px-3 py-1 rounded-xl">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+                  <QrCode className="w-4 h-4" />
+                  <span>Esperando Escaneo de Código QR</span>
+                </span>
+              ) : waStatus === "AUTHENTICATED" ? (
+                <span className="flex items-center gap-2 text-indigo-700 bg-indigo-50 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800 px-3 py-1 rounded-xl">
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Sesión Autenticada, Iniciando...</span>
+                </span>
+              ) : (
+                <span className="flex items-center gap-2 text-rose-700 bg-rose-50 border-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800 px-3 py-1 rounded-xl">
+                  <XCircle className="w-4 h-4" />
+                  <span>Cliente Desconectado</span>
+                </span>
+              )}
+            </div>
+
+            {/* Reconnect Force Button */}
+            <button
+              type="button"
+              onClick={handleForceReconnect}
+              disabled={reconnecting}
+              className="px-4 py-2.5 bg-gray-900 hover:bg-gray-800 dark:bg-gray-800 dark:hover:bg-gray-700 text-white rounded-2xl text-xs font-bold transition-all shadow-sm flex items-center gap-2 cursor-pointer active:scale-95 disabled:opacity-50"
+              title="Cierra la sesión actual y genera un nuevo código QR de vinculación"
+              id="btn-force-whatsapp-reconnect"
+            >
+              <RefreshCw className={`w-4 h-4 ${reconnecting ? 'animate-spin text-emerald-400' : 'text-emerald-400'}`} />
+              <span>{reconnecting ? 'Reiniciando...' : 'Forzar Reconexión'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* QR Code Display & Instructions Content */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-center">
+          <div className="md:col-span-5 flex flex-col items-center justify-center p-6 bg-gray-50 dark:bg-gray-800/40 rounded-3xl border border-gray-100 dark:border-gray-800 text-center space-y-4">
+            {waStatus === "READY" ? (
+              <div className="space-y-3 py-6">
+                <div className="w-20 h-20 bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center mx-auto shadow-inner">
+                  <CheckCircle2 className="w-10 h-10" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-gray-900 dark:text-white">¡Sesión Vinculada Correctamente!</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-xs">
+                    Tu cliente de WhatsApp Web está listo para recibir comandos y enviar confirmaciones automáticas.
+                  </p>
+                </div>
+              </div>
+            ) : qrCodeData && qrCodeData.startsWith('data:image') ? (
+              <div className="space-y-3">
+                <div className="p-3 bg-white rounded-3xl shadow-md border-2 border-emerald-500/40 inline-block">
+                  <img
+                    src={qrCodeData}
+                    alt="Código QR WhatsApp Web DECOM"
+                    className="w-56 h-56 object-contain rounded-2xl"
+                  />
+                </div>
+                <span className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400 font-bold block animate-pulse">
+                  📲 Código QR en Vivo • Actualización Automática
+                </span>
+              </div>
+            ) : (
+              <div className="space-y-3 py-10">
+                <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 rounded-2xl inline-block">
+                  <RefreshCw className="w-8 h-8 text-emerald-500 animate-spin" />
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 max-w-xs">
+                  Generando código QR desde el servidor Express con <code className="font-mono">qrcode-terminal</code>...
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="md:col-span-7 space-y-4">
+            <h3 className="text-sm font-extrabold text-gray-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+              <Info className="w-4 h-4 text-emerald-500" />
+              <span>Instrucciones de Vinculación</span>
+            </h3>
+
+            <ol className="space-y-3 text-xs text-gray-600 dark:text-gray-300">
+              <li className="flex items-start gap-3 p-3 bg-gray-50/80 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-800">
+                <span className="w-6 h-6 rounded-full bg-emerald-500 text-white font-bold text-xs flex items-center justify-center shrink-0">1</span>
+                <div>
+                  <span className="font-bold text-gray-900 dark:text-white block">Abre WhatsApp en tu teléfono inteligente</span>
+                  <span>Ingresa a la aplicación oficial de WhatsApp en el dispositivo del Departamento de Comunicaciones.</span>
+                </div>
+              </li>
+
+              <li className="flex items-start gap-3 p-3 bg-gray-50/80 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-800">
+                <span className="w-6 h-6 rounded-full bg-emerald-500 text-white font-bold text-xs flex items-center justify-center shrink-0">2</span>
+                <div>
+                  <span className="font-bold text-gray-900 dark:text-white block">Ingresa a Dispositivos Vinculados</span>
+                  <span>En Android pulsa el menú de 3 puntos (⋮) o en iPhone ve a <strong>Configuración ⚙️</strong> y selecciona <strong>Dispositivos vinculados</strong>.</span>
+                </div>
+              </li>
+
+              <li className="flex items-start gap-3 p-3 bg-gray-50/80 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-800">
+                <span className="w-6 h-6 rounded-full bg-emerald-500 text-white font-bold text-xs flex items-center justify-center shrink-0">3</span>
+                <div>
+                  <span className="font-bold text-gray-900 dark:text-white block">Apunta la cámara al Código QR</span>
+                  <span>Toca en <strong>Vincular un dispositivo</strong> y escanea el código mostrado a la izquierda. La sesión persistirá automáticamente gracias a <code className="font-mono text-indigo-600 dark:text-indigo-400">LocalAuth</code>.</span>
+                </div>
+              </li>
+            </ol>
           </div>
         </div>
       </div>
@@ -550,14 +753,28 @@ export const ConfiguracionWhatsApp: React.FC<ConfiguracionWhatsAppProps> = ({ tr
               )}
             </div>
 
-            {/* Sandbox Testing Trigger */}
+            {/* Sandbox Testing Trigger with DECOM Members selection */}
             <div className="pt-2 space-y-3">
               <div className="flex items-center justify-between text-xs text-gray-400">
-                <span className="font-bold text-gray-300">Prueba Directa de API Express</span>
-                <span className="text-[10px] font-mono text-indigo-400">MySQL `/api/recordatorio-comite`</span>
+                <span className="font-bold text-gray-300 flex items-center gap-1">
+                  <Users className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Seleccionar Integrante DECOM de la BD</span>
+                </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <select
+                value={selectedMemberId}
+                onChange={(e) => handleMemberChange(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-xl text-xs font-bold text-white outline-none cursor-pointer"
+              >
+                {INITIAL_MEMBERS.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.photoUrl} {m.name} — ({m.phone}) — {m.roles[0] || 'Servicio'}
+                  </option>
+                ))}
+              </select>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
                 <button
                   type="button"
                   onClick={handleSendTestReminder}
